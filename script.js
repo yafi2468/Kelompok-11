@@ -17,21 +17,38 @@ function init() {
     updateActiveCategory(currentCategory);
 }
 
-
-// Tema Dark/Light (tetap sama)
-// ... (fungsi setupTheme tetap sama) ...
+// Tema Dark/Light
+function setupTheme() {
+    const toggle = document.getElementById('themeToggle');
+    toggle.addEventListener('click', () => {
+        document.documentElement.classList.toggle('dark');
+    });
+}
 
 // Ambil Todo dari API
 async function fetchTodos() {
     const token = localStorage.getItem("token");
-    const response = await fetch("https://api-todo-list-pbw.vercel.app/todo/getAllTodos", {
-        method: "GET",
-        headers: { Authorization: `Bearer ${token}` }
-    });
-    const result = await response.json();
-    tasks = result.data || [];
-    updateStats();
-    showCategory(currentCategory);
+    try {
+        const response = await fetch("https://api-todo-list-pbw.vercel.app/todo/getAllTodos", {
+            method: "GET",
+            headers: { Authorization: `Bearer ${token}` }
+        });
+        
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}`);
+        }
+        
+        const result = await response.json();
+        tasks = result.data || [];
+        updateStats();
+        showCategory(currentCategory);
+    } catch (err) {
+        console.error('Fetch todos error:', err);
+        // Fallback jika API gagal
+        tasks = JSON.parse(localStorage.getItem("tasks") || "[]");
+        updateStats();
+        showCategory(currentCategory);
+    }
 }
 
 // Tampilkan Kategori
@@ -90,8 +107,9 @@ function renderTasks(tasksToRender) {
                             ${ task.subtasks.map(st => `<li>${st.text}</li>`).join('') }
                         </ul>` : '' }
                 </div>
-                <!-- Tombol Aksi (Hapus) -->
+                <!-- Tombol Aksi (Selesai, Edit, Hapus) -->
                 <div class="task-actions">
+                    ${!task.completed ? `<button onclick="markAsCompleted('${task._id}')" class="bg-green-500 hover:bg-green-600 text-white px-2 py-1 rounded text-sm mr-2">Selesai</button>` : ''}
                     <button onclick="startEditTask('${task._id}')" class="text-blue-500 hover:text-blue-700 text-sm mr-2">Edit</button>
                     <button onclick="deleteTask('${task._id}')" class="text-red-500 hover:text-red-700 text-sm">Hapus</button>
                 </div>
@@ -100,11 +118,11 @@ function renderTasks(tasksToRender) {
     `).join('');
 }
 
-
 // Update Status Complete
 async function toggleComplete(id) {
     const token = localStorage.getItem("token");
     const task = tasks.find(t => t._id === id);
+    if (!task) return;
 
     const updatedTask = {
         text: task.text || '',
@@ -125,18 +143,27 @@ async function toggleComplete(id) {
         if (response.ok) {
             const result = await response.json();
             task.completed = result.data.completed;
+            // Juga simpan ke localStorage sebagai fallback
+            localStorage.setItem("tasks", JSON.stringify(tasks));
             showCategory(currentCategory);
             updateStats();
         } else {
-            alert("Gagal memperbarui status tugas.");
+            // Fallback jika API gagal: update lokal saja
+            task.completed = !task.completed;
+            localStorage.setItem("tasks", JSON.stringify(tasks));
+            showCategory(currentCategory);
+            updateStats();
+            console.warn("API gagal, tapi status diperbarui secara lokal");
         }
     } catch (err) {
         console.error('Update error:', err);
-        alert("Terjadi kesalahan saat memperbarui tugas.");
+        // Fallback: update lokal saja
+        task.completed = !task.completed;
+        localStorage.setItem("tasks", JSON.stringify(tasks));
+        showCategory(currentCategory);
+        updateStats();
     }
 }
-
-
 
 // Update Active Category
 function updateActiveCategory(category) {
@@ -148,15 +175,9 @@ function updateActiveCategory(category) {
     const activeBtn = document.querySelector(`button[onclick="showCategory('${category}')"]`);
     if (activeBtn) {
         activeBtn.classList.add('bg-indigo-100', 'dark:bg-gray-700', 'text-indigo-600', 'dark:text-indigo-400');
-        if (activeBtn) {
-            activeBtn.classList.add('bg-indigo-100', 'dark:bg-gray-700', 'text-indigo-600', 'dark:text-indigo-400');
-            activeBtn.classList.remove('text-gray-700', 'dark:text-gray-300'); // perbaikan kecil
-        }
-        
+        activeBtn.classList.remove('text-gray-700', 'dark:text-gray-300');
     }
 }
-
-// ... (fungsi lainnya seperti addTask, deleteTask, logout tetap sama dengan perubahan dueDate dan prioritas) ...
 
 // Function to open the task modal
 function openTaskModal() {
@@ -168,47 +189,134 @@ function closeTaskModal() {
     document.getElementById('taskModal').classList.add('hidden');
 }
 
-
-// Function to add a new task via API
-// Function to add a new task via API
+// Function to add or edit a task
 async function addTask() {
     const title = document.getElementById('taskTitle').value;
-    if (!title.trim()) { alert('Judul tugas tidak boleh kosong!'); return; }
+    if (!title.trim()) { 
+        alert('Judul tugas tidak boleh kosong!'); 
+        return; 
+    }
+    
     const token = localStorage.getItem('token');
+    const editId = document.getElementById("taskModal").getAttribute("data-edit-id");
+
+    const taskData = {
+        text: title,
+        priority: parseInt(document.getElementById('taskPriority').value) || 4,
+        dueDate: document.getElementById('taskDueDate').value,
+        tags: document.getElementById('taskTags').value.split(',').map(t => t.trim()).filter(t => t),
+        subtasks: Array.from(document.querySelectorAll('.subtask-input')).map(input => ({ text: input.value, completed: false })),
+        recurrence: document.getElementById('taskRecurrence').value,
+        completed: false
+    };
+
+    // Untuk API, kita hanya kirim properti yang didukung API
+    const apiTaskData = {
+        text: taskData.text,
+        priority: taskData.priority,
+        completed: false
+    };
+
     try {
-        const response = await fetch('https://api-todo-list-pbw.vercel.app/todo/createTodo', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                Authorization: `Bearer ${token}`
-            },
-            body: JSON.stringify({ text: title })
-        });
-        if (!response.ok) throw new Error('HTTP ' + response.status);
-        const result = await response.json();
-        const data = result.data;
-// Build local task object
-const task = {
-    ...data,
-    priority: parseInt(document.getElementById('taskPriority').value),
-    dueDate: document.getElementById('taskDueDate').value,
-    tags: document.getElementById('taskTags').value
-        .split(',')
-        .map(t => t.trim())
-        .filter(t => t),
-    subtasks: Array.from(document.querySelectorAll('.subtask-input'))
-        .map(input => ({ text: input.value, completed: false })),
-    recurrence: document.getElementById('taskRecurrence').value
-};
-        tasks.push(task);
+        let response;
+        
+        if (editId) {
+            // UPDATE
+            response = await fetch(`https://api-todo-list-pbw.vercel.app/todo/updateTodo/${editId}`, {
+                method: 'PUT',
+                headers: {
+                    'Content-Type': 'application/json',
+                    Authorization: `Bearer ${token}`
+                },
+                body: JSON.stringify(apiTaskData)
+            });
+            
+            if (!response.ok) {
+                throw new Error('HTTP ' + response.status);
+            }
+            
+            const result = await response.json();
+            
+            // Update local task with both API returned data and our additional fields
+            const index = tasks.findIndex(t => t._id === editId);
+            if (index !== -1) {
+                tasks[index] = { 
+                    ...tasks[index], 
+                    ...result.data,
+                    dueDate: taskData.dueDate,
+                    tags: taskData.tags,
+                    subtasks: taskData.subtasks,
+                    recurrence: taskData.recurrence
+                };
+            }
+        } else {
+            // CREATE
+            response = await fetch('https://api-todo-list-pbw.vercel.app/todo/createTodo', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    Authorization: `Bearer ${token}`
+                },
+                body: JSON.stringify(apiTaskData)
+            });
+            
+            if (!response.ok) {
+                throw new Error('HTTP ' + response.status);
+            }
+            
+            const result = await response.json();
+            
+            // Buat task lokal dengan data dari API dan field tambahan
+            const newTask = { 
+                ...result.data,
+                dueDate: taskData.dueDate,
+                tags: taskData.tags,
+                subtasks: taskData.subtasks,
+                recurrence: taskData.recurrence
+            };
+            
+            tasks.push(newTask);
+        }
+        
+        // Simpan ke localStorage sebagai fallback
+        localStorage.setItem("tasks", JSON.stringify(tasks));
+        
         updateStats();
         showCategory(currentCategory);
         closeTaskModal();
         document.getElementById('taskForm').reset();
         document.getElementById('subtasksContainer').innerHTML = '';
+        document.getElementById('taskModal').removeAttribute("data-edit-id");
     } catch (err) {
-        console.error('Add task error:', err);
-        alert('Gagal menambah tugas: ' + err.message);
+        console.error('Task error:', err);
+        
+        // Fallback: Jika API gagal, tetap perbarui data lokal
+        if (editId) {
+            const index = tasks.findIndex(t => t._id === editId);
+            if (index !== -1) {
+                tasks[index] = { 
+                    ...tasks[index], 
+                    ...taskData
+                };
+            }
+        } else {
+            // Generate temporary ID for local tasks
+            const newTask = { 
+                _id: 'local_' + Date.now(),
+                ...taskData
+            };
+            tasks.push(newTask);
+        }
+        
+        localStorage.setItem("tasks", JSON.stringify(tasks));
+        updateStats();
+        showCategory(currentCategory);
+        closeTaskModal();
+        document.getElementById('taskForm').reset();
+        document.getElementById('subtasksContainer').innerHTML = '';
+        document.getElementById('taskModal').removeAttribute("data-edit-id");
+        
+        console.warn("API gagal, tapi task diperbarui secara lokal");
     }
 }
 
@@ -216,10 +324,6 @@ function logout() {
     localStorage.clear();
     window.location.href = 'login.html';
 }
-
-// Initialize app on page load
-document.addEventListener('DOMContentLoaded', init);
-
 
 // Update Task Stats
 function updateStats() {
@@ -247,14 +351,6 @@ function addSubtaskField() {
     container.appendChild(input);
 }
 
-// Setup Theme Toggle
-function setupTheme() {
-    const toggle = document.getElementById('themeToggle');
-    toggle.addEventListener('click', () => {
-        document.documentElement.classList.toggle('dark');
-    });
-}
-
 // Init Sortable
 function initSortable() {
     const el = document.getElementById('taskList');
@@ -263,11 +359,12 @@ function initSortable() {
     }
 }
 
-
 // Function to delete a task
 async function deleteTask(id) {
-    const token = localStorage.getItem('token');
     if (!confirm('Hapus tugas ini?')) return;
+    
+    const token = localStorage.getItem('token');
+    
     try {
         const response = await fetch(`https://api-todo-list-pbw.vercel.app/todo/deleteTodo/${id}`, {
             method: 'DELETE',
@@ -275,14 +372,26 @@ async function deleteTask(id) {
                 Authorization: `Bearer ${token}`
             }
         });
-        if (!response.ok) throw new Error('HTTP ' + response.status);
+        
+        if (!response.ok) {
+            throw new Error('HTTP ' + response.status);
+        }
+        
         // Remove locally
         tasks = tasks.filter(t => t._id !== id);
+        // Update localStorage
+        localStorage.setItem("tasks", JSON.stringify(tasks));
         updateStats();
         showCategory(currentCategory);
     } catch (err) {
         console.error('Delete task error:', err);
-        alert('Gagal menghapus tugas: ' + err.message);
+        
+        // Fallback: Jika API gagal, tetap hapus task secara lokal
+        tasks = tasks.filter(t => t._id !== id);
+        localStorage.setItem("tasks", JSON.stringify(tasks));
+        updateStats();
+        showCategory(currentCategory);
+        console.warn("API gagal, tapi task dihapus secara lokal");
     }
 }
 
@@ -309,74 +418,60 @@ function startEditTask(id) {
 
     document.getElementById("taskModal").setAttribute("data-edit-id", id);
     openTaskModal();
+
 }
 
-// Edit dan Simpan (pakai addTask juga)
-async function addTask() {
-    const title = document.getElementById('taskTitle').value;
-    if (!title.trim()) { alert('Judul tugas tidak boleh kosong!'); return; }
-    const token = localStorage.getItem('token');
-
-    const newTask = {
-        text: title,
-        priority: parseInt(document.getElementById('taskPriority').value) || 4,
-        dueDate: document.getElementById('taskDueDate').value,
-        tags: document.getElementById('taskTags').value.split(',').map(t => t.trim()).filter(t => t),
-        subtasks: Array.from(document.querySelectorAll('.subtask-input')).map(input => ({ text: input.value, completed: false })),
-        recurrence: document.getElementById('taskRecurrence').value,
-        completed: false
+// Function to mark task as completed and switch to completed category
+async function markAsCompleted(id) {
+    const task = tasks.find(t => t._id === id);
+    if (!task) return;
+    
+    // First set the task as completed
+    const token = localStorage.getItem("token");
+    const updatedTask = {
+        text: task.text || '',
+        priority: parseInt(task.priority) || 4,
+        completed: true
     };
 
-    const editId = document.getElementById("taskModal").getAttribute("data-edit-id");
-
     try {
-        if (editId) {
-            const response = await fetch(`https://api-todo-list-pbw.vercel.app/todo/updateTodo/${editId}`, {
-                method: 'PUT',
-                headers: {
-                    'Content-Type': 'application/json',
-                    Authorization: `Bearer ${token}`
-                },
-                body: JSON.stringify({
-                    text: newTask.text,
-                    priority: newTask.priority,
-                    completed: false // tambahkan ini jika diperlukan oleh API
-                })
-            });
-        
-            if (!response.ok) throw new Error('HTTP ' + response.status);
-        
-            const updated = await response.json();
-            const index = tasks.findIndex(t => t._id === editId);
-            if (index !== -1) tasks[index] = { ...tasks[index], ...updated.data };
-        }
-         
-        else {
-            // CREATE
-            const response = await fetch('https://api-todo-list-pbw.vercel.app/todo/createTodo', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    Authorization: `Bearer ${token}`
-                },
-                body: JSON.stringify(newTask)
-            });
+        const response = await fetch(`https://api-todo-list-pbw.vercel.app/todo/updateTodo/${id}`, {
+            method: "PUT",
+            headers: {
+                "Content-Type": "application/json",
+                Authorization: `Bearer ${token}`
+            },
+            body: JSON.stringify(updatedTask)
+        });
 
-            if (!response.ok) throw new Error('HTTP ' + response.status);
-
+        if (response.ok) {
             const result = await response.json();
-            const task = { ...result.data, ...newTask };
-            tasks.push(task);
+            task.completed = true;
+            // Juga simpan ke localStorage sebagai fallback
+            localStorage.setItem("tasks", JSON.stringify(tasks));
+            // Switch to completed category
+            showCategory('completed');
+            updateStats();
+            updateActiveCategory('completed');
+        } else {
+            // Fallback jika API gagal: update lokal saja
+            task.completed = true;
+            localStorage.setItem("tasks", JSON.stringify(tasks));
+            showCategory('completed');
+            updateStats();
+            updateActiveCategory('completed');
+            console.warn("API gagal, tapi status diperbarui secara lokal");
         }
-
-        updateStats();
-        showCategory(currentCategory);
-        closeTaskModal();
-        document.getElementById('taskForm').reset();
-        document.getElementById('subtasksContainer').innerHTML = '';
-        document.getElementById('taskModal').removeAttribute("data-edit-id");
     } catch (err) {
-        console.error('Task error:', err);
-        alert('Gagal menyimpan tugas: ' + err.message);
+        console.error('Update error:', err);
+        // Fallback: update lokal saja
+        task.completed = true;
+        localStorage.setItem("tasks", JSON.stringify(tasks));
+        showCategory('completed');
+        updateStats();
+        updateActiveCategory('completed');
     }
 }
+
+// Initialize app on page load
+document.addEventListener('DOMContentLoaded', init);
