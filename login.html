@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Login</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-100 flex justify-center items-center h-screen">
+  <div class="bg-white p-6 rounded-lg shadow-lg w-96">
+    <h2 class="text-2xl font-bold text-center mb-6">Login Pengguna</h2>
+    <form id="loginForm">
+      <input type="email" id="email" placeholder="Email" required class="w-full mb-3 px-4 py-2 border rounded" />
+      <input type="password" id="password" placeholder="Password" required class="w-full mb-3 px-4 py-2 border rounded" />
+      <button type="submit" class="w-full bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600">Login</button>
+      <p class="mt-4 text-sm text-center">Belum punya akun? <a href="register.html" class="text-blue-500 underline">Register</a></p>
+    </form>
+  </div>
+
+  <script>
+    document.getElementById('loginForm').addEventListener('submit', async function(e) {
+      e.preventDefault();
+
+      const email = document.getElementById('email').value;
+      const password = document.getElementById('password').value;
+
+      try {
+        const response = await fetch('https://api-todo-list-pbw.vercel.app/auth/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email, password })
+        });
+
+        const result = await response.json();
+        console.log("API RESPONSE:", result);
+
+        if (response.ok && result.data && result.data._id) {
+          // Simpan data pengguna dan token
+          localStorage.setItem('userId', result.data._id);
+          localStorage.setItem('token', result.data.token); // Simpan token JWT
+          localStorage.setItem('userEmail', result.data.email);
+          localStorage.setItem('userName', result.data.fullName);
+
+          alert('Login berhasil!');
+          window.location.href = 'Beranda.html'; // Redirect ke beranda
+        } else {
+          alert(result.message || 'Login gagal. Cek kembali email dan password.');
+        }
+
+      } catch (err) {
+        console.error('Login Error:', err);
+        alert('Terjadi kesalahan saat login.');
+      }
+    });
+  </script>
+</body>
+</html>
